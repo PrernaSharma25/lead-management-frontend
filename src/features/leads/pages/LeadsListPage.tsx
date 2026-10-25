@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import {
   Plus,
@@ -25,7 +25,7 @@ import leadsApi from '../../../services/leads-api';
 import { useDebounce } from '../../../hooks/useDebounce';
 import { useToast } from '../../../hooks/useToast';
 import { formatDateShort } from '../../../utils/date';
-import { formatErrorMessage } from '../../../utils/errors';
+import { formatErrorMessage, isRequestCanceled } from '../../../utils/errors';
 import { getInitials } from '../../../utils/formatters';
 
 const STATUS_FILTERS: { key: LeadStatus | 'all'; label: string }[] = [
@@ -67,12 +67,23 @@ export const LeadsListPage: React.FC = () => {
   // Lead deletion state
   const [leadToDelete, setLeadToDelete] = useState<Lead | null>(null);
 
-  // Ref to cancel in-flight requests
-  const abortControllerRef = useRef<AbortController | null>(null);
-
   // Sync state to URL search parameters
   const updateUrlParams = useCallback(
     (newSearch: string, newStatus: LeadStatus | 'all', newPage: number, newLimit: number) => {
+      const currentSearch = searchParams.get('search') || '';
+      const currentStatus = searchParams.get('status') || 'all';
+      const currentPage = Number(searchParams.get('page')) || 1;
+      const currentLimit = Number(searchParams.get('limit')) || 10;
+
+      if (
+        currentSearch === newSearch &&
+        currentStatus === newStatus &&
+        currentPage === newPage &&
+        currentLimit === newLimit
+      ) {
+        return;
+      }
+
       const params = new URLSearchParams();
       if (newSearch) params.set('search', newSearch);
       if (newStatus !== 'all') params.set('status', newStatus);
@@ -80,7 +91,7 @@ export const LeadsListPage: React.FC = () => {
       if (newLimit !== 10) params.set('limit', String(newLimit));
       setSearchParams(params, { replace: true });
     },
-    [setSearchParams],
+    [searchParams, setSearchParams],
   );
 
   // Fetch leads from backend
@@ -90,13 +101,8 @@ export const LeadsListPage: React.FC = () => {
       status: LeadStatus | 'all',
       currentPage: number,
       currentLimit: number,
+      signal?: AbortSignal,
     ) => {
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-      }
-      const controller = new AbortController();
-      abortControllerRef.current = controller;
-
       try {
         setIsLoading(true);
         setError(null);
@@ -108,8 +114,10 @@ export const LeadsListPage: React.FC = () => {
             page: currentPage,
             limit: currentLimit,
           },
-          controller.signal,
+          signal,
         );
+
+        if (signal?.aborted) return;
 
         setLeads(response.data);
         if (response.pagination) {
@@ -123,12 +131,14 @@ export const LeadsListPage: React.FC = () => {
           });
         }
       } catch (err: unknown) {
-        if (err instanceof Error && err.name === 'CanceledError') {
+        if (isRequestCanceled(err) || signal?.aborted) {
           return;
         }
         setError(formatErrorMessage(err));
       } finally {
-        setIsLoading(false);
+        if (!signal?.aborted) {
+          setIsLoading(false);
+        }
       }
     },
     [],
@@ -137,12 +147,12 @@ export const LeadsListPage: React.FC = () => {
   // Trigger fetch when search, status, page, or limit changes
   useEffect(() => {
     updateUrlParams(debouncedSearch, statusFilter, page, limit);
-    fetchLeads(debouncedSearch, statusFilter, page, limit);
+
+    const controller = new AbortController();
+    fetchLeads(debouncedSearch, statusFilter, page, limit, controller.signal);
 
     return () => {
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-      }
+      controller.abort();
     };
   }, [debouncedSearch, statusFilter, page, limit, fetchLeads, updateUrlParams]);
 

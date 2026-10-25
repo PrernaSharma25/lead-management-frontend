@@ -23,7 +23,7 @@ import leadsApi from '../../../services/leads-api';
 import notesApi from '../../../services/notes-api';
 import { useToast } from '../../../hooks/useToast';
 import { formatDate } from '../../../utils/date';
-import { formatErrorMessage } from '../../../utils/errors';
+import { formatErrorMessage, isRequestCanceled } from '../../../utils/errors';
 import { getInitials } from '../../../utils/formatters';
 
 export const LeadDetailPage: React.FC = () => {
@@ -63,7 +63,7 @@ export const LeadDetailPage: React.FC = () => {
         setLead(data);
         setNotes(data.notes || []);
       } catch (err: unknown) {
-        if (err instanceof Error && err.name === 'CanceledError') {
+        if (isRequestCanceled(err) || signal?.aborted) {
           return;
         }
         const errorMsg = formatErrorMessage(err);
@@ -76,7 +76,9 @@ export const LeadDetailPage: React.FC = () => {
           setError(errorMsg);
         }
       } finally {
-        setIsLoading(false);
+        if (!signal?.aborted) {
+          setIsLoading(false);
+        }
       }
     },
     [isValidId, numericId],

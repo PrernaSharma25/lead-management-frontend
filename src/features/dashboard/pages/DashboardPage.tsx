@@ -22,7 +22,7 @@ import ErrorState from '../../../components/ui/ErrorState';
 import { DashboardStats, Lead } from '../../../types/lead.types';
 import leadsApi from '../../../services/leads-api';
 import { formatRelativeTime } from '../../../utils/date';
-import { formatErrorMessage } from '../../../utils/errors';
+import { formatErrorMessage, isRequestCanceled } from '../../../utils/errors';
 
 export const DashboardPage: React.FC = () => {
   const navigate = useNavigate();
@@ -71,12 +71,14 @@ export const DashboardPage: React.FC = () => {
 
       setRecentLeads(allRes.data);
     } catch (err: unknown) {
-      if (err instanceof Error && err.name === 'CanceledError') {
+      if (isRequestCanceled(err) || signal?.aborted) {
         return;
       }
       setError(formatErrorMessage(err));
     } finally {
-      setIsLoading(false);
+      if (!signal?.aborted) {
+        setIsLoading(false);
+      }
     }
   }, []);
 

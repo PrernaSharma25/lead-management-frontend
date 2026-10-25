@@ -9,7 +9,7 @@ import EmptyState from '../../../components/ui/EmptyState';
 import { CreateLeadPayload, Lead } from '../../../types/lead.types';
 import leadsApi from '../../../services/leads-api';
 import { useToast } from '../../../hooks/useToast';
-import { formatErrorMessage } from '../../../utils/errors';
+import { formatErrorMessage, isRequestCanceled } from '../../../utils/errors';
 
 export const EditLeadPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -39,7 +39,7 @@ export const EditLeadPage: React.FC = () => {
         const data = await leadsApi.getLeadById(numericId, signal);
         setLead(data);
       } catch (err: unknown) {
-        if (err instanceof Error && err.name === 'CanceledError') {
+        if (isRequestCanceled(err) || signal?.aborted) {
           return;
         }
         const msg = formatErrorMessage(err);
@@ -52,7 +52,9 @@ export const EditLeadPage: React.FC = () => {
           setApiError(msg);
         }
       } finally {
-        setIsLoading(false);
+        if (!signal?.aborted) {
+          setIsLoading(false);
+        }
       }
     },
     [isValidId, numericId],

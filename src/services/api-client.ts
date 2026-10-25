@@ -25,12 +25,23 @@ apiClient.interceptors.request.use(
 // Response interceptor to normalize errors into ApiError instances
 apiClient.interceptors.response.use(
   (response) => response,
-  (error: AxiosError) => {
-    if (error.response) {
+  (error: unknown) => {
+    // Preserve cancellation errors untouched so caller can detect aborted requests
+    if (axios.isCancel(error)) {
+      return Promise.reject(error);
+    }
+
+    if (error instanceof ApiError) {
+      return Promise.reject(error);
+    }
+
+    const axiosError = error as AxiosError;
+
+    if (axiosError.response) {
       // Backend returned an error response (4xx, 5xx)
-      const apiError = parseAxiosErrorData(error.response.status, error.response.data);
+      const apiError = parseAxiosErrorData(axiosError.response.status, axiosError.response.data);
       return Promise.reject(apiError);
-    } else if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
+    } else if (axiosError.code === 'ECONNABORTED' || axiosError.message?.includes('timeout')) {
       return Promise.reject(
         new ApiError(
           408,
@@ -38,7 +49,7 @@ apiClient.interceptors.response.use(
           'The server is taking too long to respond. Please check that the backend is running.',
         ),
       );
-    } else if (error.request) {
+    } else if (axiosError.request) {
       // Network error or backend server down
       return Promise.reject(
         new ApiError(
@@ -50,7 +61,7 @@ apiClient.interceptors.response.use(
     }
 
     return Promise.reject(
-      new ApiError(500, 'UNEXPECTED_ERROR', error.message || 'An unexpected error occurred'),
+      new ApiError(500, 'UNEXPECTED_ERROR', axiosError.message || 'An unexpected error occurred'),
     );
   },
 );
